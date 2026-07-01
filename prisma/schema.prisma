@@ -1,0 +1,389 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── 📌 ENUMS ──
+
+enum AccessType {
+  FREE
+  PAID
+  HYBRID
+}
+
+enum OrderStatus {
+  PENDING
+  SUCCESS
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  EXPIRED
+  FAILED
+}
+
+enum EmploymentStatus {
+  MAHASISWA
+  PROFESSIONAL
+  GENERAL
+}
+
+enum InfoSource {
+  SOCIAL_MEDIA
+  ADS
+  MARKETING
+  LINKEDIN
+}
+
+enum UserRole {
+  ADMINISTRATOR
+  SPEAKER
+  MODERATOR
+  FINANCE
+  PARTICIPANT
+}
+
+// ── 👤 USER & AUTHENTICATION SUBSYSTEM ──
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  username      String?   @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  role          UserRole  @default(PARTICIPANT)
+  isActive      Boolean   @default(true)
+  loginAttempts Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relasi
+  accounts     Account[]
+  sessions     Session[]
+  orders       Order[]
+  profile      UserProfile?
+  webinars     WebinarParticipant[]
+  certificates Certificate[]
+
+  @@index([email, role])
+}
+
+// ── 📄 USER PROFILE DENORMALIZATION (EFISIENSI JOIN & PORTFOLIO) ──
+// 🌟 PERBAIKAN: Menyatukan sub-profil akademik dan profesional ke dalam 1 tabel tunggal 
+// untuk memotong rantai TRIPLE LEFT JOIN yang membebani query dashboard profile.
+
+model UserProfile {
+  id               String           @id @default(cuid())
+  userId           String           @unique
+  birth            DateTime?
+  whatsapp         String?
+  infoSource       InfoSource?
+  linkedinUrl      String?
+  employmentStatus EmploymentStatus @default(GENERAL)
+
+  // Parameter Portofolio Akademik (Nullable jika User adalah Professional/General)
+  institution    String?
+  major          String?
+  entryYear      Int?
+  semester       Int?
+  graduationYear Int?
+
+  // Parameter Kualifikasi Praktisi Profesional (Nullable jika User adalah Mahasiswa)
+  companyName       String?
+  jobTitle          String?
+  sector            String?
+  kcmiNumber        String?
+  yearsOfExperience Int?
+
+  bannerImage String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([employmentStatus])
+}
+
+// ── 🖥️ SPEAKERS ──
+
+model Speaker {
+  id          String   @id @default(cuid())
+  name        String
+  title       String
+  company     String?
+  image       String
+  bio         String?  @db.Text
+  credentials String[]
+  linkedinUrl String?
+  websiteUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  webinars Webinar[]
+}
+
+// ── 🎓 COMMERCE WEBINARS & ADDONS ──
+
+model Webinar {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  title       String
+  subtitle    String     @db.VarChar(500)
+  description String?    @db.Text
+  duration    String
+  category    String
+  basePrice   Int        @default(0)
+  accessType  AccessType @default(PAID)
+  imageUrl    String
+  abstract    String     @db.Text
+  isLive      Boolean    @default(false)
+  isCompleted Boolean    @default(false)
+  faqs        Json
+  materialUrl String?
+  resources   Json?      @default("[]")
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  // Relasi
+  speakers     Speaker[]
+  sessions     WebinarSession[]
+  addons       WebinarAddon[]
+  orders       Order[]
+  participants WebinarParticipant[]
+  certificates Certificate[]
+
+  @@index([slug, isLive, isCompleted])
+}
+
+model WebinarSession {
+  id           String   @id @default(cuid())
+  webinarId    String
+  title        String
+  startDate    DateTime @default(now())
+  endDate      DateTime @default(now())
+  duration     String?
+  meetingUrl   String?
+  recordingUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  webinar Webinar @relation(fields: [webinarId], references: [id], onDelete: Cascade)
+
+  @@index([webinarId, startDate])
+}
+
+model WebinarAddon {
+  id          String   @id @default(cuid())
+  webinarId   String
+  name        String
+  description String?
+  price       Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  webinar     Webinar      @relation(fields: [webinarId], references: [id], onDelete: Cascade)
+  orderAddons OrderAddon[]
+
+  @@index([webinarId, isActive])
+}
+
+model WebinarParticipant {
+  id           String   @id @default(cuid())
+  userId       String
+  webinarId    String
+  registeredAt DateTime @default(now())
+  isAttended   Boolean  @default(false) // Contoh metadata tambahan
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webinar Webinar @relation(fields: [webinarId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, webinarId]) // Mencegah user mendaftar webinar yang sama 2 kali
+}
+
+// ── 🛒 ORDER & REGISTRATION SUBSYSTEM ──
+
+model Order {
+  id        String      @id @default(cuid())
+  userId    String
+  webinarId String
+  status    OrderStatus @default(PENDING)
+
+  // Akuntansi Keuangan Terperinci
+  baseAmount     Int @default(0)
+  addonAmount    Int @default(0)
+  discountAmount Int @default(0)
+  totalAmount    Int
+
+  couponId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relasi
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webinar        Webinar      @relation(fields: [webinarId], references: [id], onDelete: Cascade)
+  coupon         Coupon?      @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  selectedAddons OrderAddon[]
+  payments       Payment[]
+
+  @@unique([userId, webinarId])
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model OrderAddon {
+  id              String @id @default(cuid())
+  orderId         String
+  addonId         String
+  priceAtPurchase Int
+
+  order Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  addon WebinarAddon @relation(fields: [addonId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, addonId])
+  @@index([orderId])
+  @@index([addonId])
+}
+
+// ── 💳 PAYMENT SUBSYSTEM (GATEWAY AGNOSTIC) ──
+
+model Payment {
+  id      String @id @default(cuid())
+  orderId String
+  amount  Int
+
+  // Gateway Data
+  provider         String  @default("XENDIT")
+  xenditInvoiceId  String? @unique // ID Invoice dari Xendit
+  xenditExternalId String? @unique // ID Eksternal kita yang dikirim ke Xendit
+  paymentMethod    String? // Contoh: "VIRTUAL_ACCOUNT", "EWALLET", "QRIS"
+  paymentChannel   String? // Contoh: "MANDIRI", "OVO"
+  invoiceUrl       String? // Link pembayaran Xendit
+
+  status PaymentStatus @default(PENDING)
+
+  paidAt    DateTime?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relasi
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([xenditInvoiceId])
+  @@index([xenditExternalId])
+  @@index([status, createdAt])
+}
+
+// ── 🎫 COUPON & SUBSIDY SUBSYSTEM ──
+
+enum CouponType {
+  FIXED_AMOUNT
+  PERCENTAGE
+}
+
+model Coupon {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  type         CouponType @default(PERCENTAGE)
+  value        Int
+  maxDiscount  Int?
+  minPurchase  Int        @default(0)
+  qtyTotal     Int
+  qtyAvailable Int
+  startDate    DateTime
+  endDate      DateTime
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  orders Order[]
+  usages CouponUsage[]
+
+  @@index([code, isActive])
+}
+
+model CouponUsage {
+  id        String   @id @default(cuid())
+  couponId  String
+  userId    String
+  webinarId String
+  usedAt    DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, webinarId, couponId])
+  @@index([couponId])
+  @@index([userId])
+}
+
+// ── 📜 CERTIFICATES ──
+
+model Certificate {
+  id                String   @id @default(cuid())
+  certificateNumber String   @unique
+  userId            String
+  webinarId         String
+  isValid           Boolean  @default(true)
+  issueDate         DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  webinar Webinar @relation(fields: [webinarId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, webinarId])
+  @@index([userId])
+  @@index([webinarId])
+}
