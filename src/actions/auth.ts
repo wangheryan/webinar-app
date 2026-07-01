@@ -3,7 +3,7 @@
 
 import prisma from "@/lib/prisma";
 import { RegisterSchema, type RegisterInput } from "@/schemas/auth";
-import { sendUniversalEmail } from "@/services/email.service";
+import { sendUniversalEmail } from "@/services/email/email.service";
 import { OtpEmailTemplate } from "@/components/emails/otp-template"; // Pastikan Anda sudah membuat template komponen ini
 import * as bcrypt from "bcrypt";
 

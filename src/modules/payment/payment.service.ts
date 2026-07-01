@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { PaymentStatus, OrderStatus } from "@/generated/prisma/client";
-import { sendUniversalEmail } from "@/services/email.service";
+import { sendUniversalEmail } from "@/services/email/email.service";
 import { RegistrationSuccessTemplate } from "@/components/emails/registration-success-template";
 
 /**

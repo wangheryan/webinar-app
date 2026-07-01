@@ -1,6 +1,6 @@
 import { getOrderCreationContext, clearStaleOrder, createOrderWithPayment } from "./order.repository";
 import { createXenditQRIS } from "@/services/payment.service"; // Kita akan pindahkan ini ke payment module nanti
-import { sendUniversalEmail } from "@/services/email.service";
+import { sendUniversalEmail } from "@/services/email/email.service";
 import { RegistrationSuccessTemplate } from "@/components/emails/registration-success-template";
 import { OrderStatus } from "@/generated/prisma/client";
 

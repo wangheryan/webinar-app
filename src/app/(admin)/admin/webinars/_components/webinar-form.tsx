@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -163,6 +163,9 @@ export function WebinarForm({
 
   const [deletedSessionIds, setDeletedSessionIds] = useState<string[]>([]);
   const [deletedAddonIds, setDeletedAddonIds] = useState<string[]>([]);
+  
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   const handleRemoveSession = (idx: number) => {
     const s = getValues(`sessions.${idx}`);
@@ -176,37 +179,38 @@ export function WebinarForm({
     removeAddon(idx);
   };
 
+  const watchedTitle = watch("title");
   const watchedImageUrl = watch("imageUrl");
+  
+  useEffect(() => {
+    // Auto-generate slug when title changes (hanya jika baru dibuat, atau jika user mengetik)
+    // Jika sedang edit (initialData ada), lebih baik tidak mengubah slug agar tidak merusak link lama.
+    if (!initialData && watchedTitle) {
+      const generatedSlug = watchedTitle
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/[\s_-]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      setValue("slug", generatedSlug, { shouldValidate: true });
+    }
+  }, [watchedTitle, initialData, setValue]);
+
   const watchedAccessType = watch("accessType");
   const watchedSpeakerIds = watch("speakerIds");
   const watchedIsLive = watch("isLive");
   const watchedIsCompleted = watch("isCompleted");
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setIsUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", "webinar");
-
-    try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal mengunggah gambar");
-
-      setValue("imageUrl", data.url, { shouldValidate: true });
-      toast.success("Gambar berhasil diunggah");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Terjadi kesalahan yang tidak diketahui");
-    } finally {
-      setIsUploading(false);
-    }
+    setImageFile(file);
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
+    // Kita set value ke preview URL (blob) sementara agar form validation lulus.
+    // Upload yang sebenarnya akan terjadi saat user klik Simpan.
+    setValue("imageUrl", previewUrl, { shouldValidate: true });
   };
 
   const onSubmit = (data: WebinarFormValues) => {
@@ -240,15 +244,35 @@ export function WebinarForm({
 
     startTransition(async () => {
       try {
+        // Upload gambar ke Cloudinary JIKA ADA file baru yang dipilih
+        if (imageFile) {
+          setIsUploading(true);
+          const formData = new FormData();
+          formData.append("file", imageFile);
+          formData.append("type", "webinar");
+          
+          const res = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const uploadData = await res.json();
+          if (!res.ok) throw new Error(uploadData.error || "Gagal mengunggah gambar");
+          
+          finalData.imageUrl = uploadData.url;
+          setIsUploading(false);
+        }
+
         if (initialData) {
           await updateWebinar(initialData.id, finalData);
           toast.success("Webinar berhasil diperbarui!");
         } else {
-          await createWebinar(data);
+          await createWebinar(finalData);
           toast.success("Webinar berhasil diterbitkan!");
         }
         router.push("/admin/webinars");
       } catch (error) {
+        setIsUploading(false);
         toast.error(error instanceof Error ? error.message : "Gagal menyimpan webinar");
       }
     });
@@ -313,29 +337,6 @@ export function WebinarForm({
           {/* TAB 1: INFORMASI UTAMA */}
           <div className={activeTab === "basic" ? "block" : "hidden"}>
             <div className="bg-card/60 backdrop-blur-md border border-border/50 rounded-2xl p-6 shadow-sm">
-              {/* Banner Upload */}
-              <div className="mb-8 p-4 rounded-xl border border-border/60 flex flex-col sm:flex-row gap-4 items-center sm:items-start bg-muted/20">
-                <div className="w-20 h-20 shrink-0 bg-background rounded-xl flex items-center justify-center overflow-hidden border border-border/60 shadow-inner">
-                  {watchedImageUrl ? (
-                    <img src={watchedImageUrl} alt="Preview" className="w-full h-full object-cover" />
-                  ) : (
-                    <ImageIcon2 className="h-8 w-8 text-muted-foreground/30" />
-                  )}
-                </div>
-                <div className="flex-1 flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
-                  <div>
-                    <h3 className="font-bold text-[13px] text-foreground">Unggah Sampul Webinar</h3>
-                    <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">Format JPG/PNG, maks 10MB.<br/>Resolusi optimal 1200x630px.</p>
-                  </div>
-                  <label className="cursor-pointer bg-background border border-border/60 shadow-sm rounded-lg px-4 py-2 text-xs font-bold text-foreground hover:bg-muted/50 transition-colors">
-                    {isUploading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : ""}
-                    {isUploading ? "Mengunggah..." : "Pilih Gambar"}
-                    <input type="file" accept="image/png, image/jpeg, image/webp" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                  </label>
-                </div>
-                {errors.imageUrl && <p className="text-[11px] text-destructive font-bold w-full mt-2 sm:mt-0 text-center sm:text-left">{errors.imageUrl.message}</p>}
-              </div>
-
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
                 <div className="space-y-1.5 md:col-span-2">
                   <Label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Judul Webinar</Label>
@@ -608,8 +609,52 @@ export function WebinarForm({
           </div>
         </div>
 
-        {/* ── Right Column (Sidebar: Instructors) ── */}
+        {/* ── Right Column (Sidebar) ── */}
         <div className="w-full lg:w-[35%] space-y-6">
+          
+          {/* Banner Upload Sidebar */}
+          <div className="bg-card/60 backdrop-blur-md border border-border/50 rounded-2xl p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4 text-foreground">
+              <ImageIcon2 size={16} className="text-primary" />
+              <h3 className="font-bold text-[14px]">Sampul Webinar</h3>
+            </div>
+            
+            <div className="flex flex-col gap-4">
+              <div className="w-full aspect-video shrink-0 bg-muted/30 rounded-xl flex items-center justify-center overflow-hidden border border-border/60 shadow-inner relative group">
+                {watchedImageUrl ? (
+                  <img src={watchedImageUrl} alt="Preview" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground/50">
+                    <ImageIcon2 className="h-8 w-8" />
+                    <span className="text-[10px] font-bold uppercase tracking-wider">Belum ada gambar</span>
+                  </div>
+                )}
+                
+                {/* Overlay for hover */}
+                <label className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                  <span className="bg-white text-black px-3 py-1.5 rounded-lg text-xs font-bold">
+                    Ubah Gambar
+                  </span>
+                  <input type="file" accept="image/png, image/jpeg, image/webp" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                </label>
+              </div>
+
+              <div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Format JPG/PNG, maksimal 10MB.<br/>Resolusi optimal 1200x630px.
+                </p>
+                {errors.imageUrl && <p className="text-[11px] text-destructive font-bold mt-2">{errors.imageUrl.message}</p>}
+                
+                {!watchedImageUrl && (
+                  <label className="mt-3 w-full flex items-center justify-center cursor-pointer bg-primary text-primary-foreground shadow-sm rounded-lg px-4 py-2 text-xs font-bold transition-colors hover:bg-primary/90">
+                    Pilih Gambar
+                    <input type="file" accept="image/png, image/jpeg, image/webp" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="bg-card/60 backdrop-blur-md border border-border/50 rounded-2xl p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-4 text-foreground">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>

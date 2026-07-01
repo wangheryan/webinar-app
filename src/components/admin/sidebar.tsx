@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, Users, Video, Mic2, CreditCard,
-  Ticket, ChevronLeft, ChevronRight, Globe, GraduationCap, Award
+  Ticket, ChevronLeft, ChevronRight, Globe, GraduationCap, Award, Mail
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 
@@ -19,6 +19,7 @@ const navItems = [
   { label: "Transaksi", href: "/admin/enrollments", icon: CreditCard },
   { label: "Sertifikat", href: "/admin/certificates", icon: Award },
   { label: "Kupon", href: "/admin/coupons", icon: Ticket },
+  { label: "Perpesanan", href: "/admin/messaging", icon: Mail },
 ];
 
 interface AdminSidebarInnerProps {
